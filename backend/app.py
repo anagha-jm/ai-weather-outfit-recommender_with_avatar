@@ -5,6 +5,7 @@ from flask_cors import CORS
 
 from weather_service import get_weather
 from predictor import predict_outfit
+from outfit_catalog import get_ranked_outfits
 
 app = Flask(__name__)
 
@@ -43,15 +44,19 @@ def predict():
         return jsonify({"error": "City not found or weather service unavailable"}), 404
 
     outfit = predict_outfit(weather["forecast"])
+    ranked_outfits = get_ranked_outfits(
+        weather["forecast"],
+        style=style,
+        occasion=occasion,
+        comfort_level=comfort_level,
+    )
 
-    # NOTE: ranked_outfits will be populated in Stage 2 (outfit catalog).
-    # Returning empty list here keeps the API response shape stable.
     return jsonify({
         "city": city,
         "current": weather["current"],
         "forecast": weather["forecast"],
         "recommended_outfit": outfit,
-        "ranked_outfits": [],   # Stage 2: will contain ranked outfit objects
+        "ranked_outfits": ranked_outfits,
         # Echoing received filters so frontend can verify they were received
         "_filters": {
             "style": style,
