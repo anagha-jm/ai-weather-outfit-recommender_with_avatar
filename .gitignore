@@ -1,0 +1,27 @@
+# Virtual environments
+.venv/
+venv/
+.venv
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets and local databases
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+data/*.db
+
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+.vscode/
+data/*.db
+.env
+.env.*
+!.env.example

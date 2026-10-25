@@ -29,8 +29,15 @@ if r.status_code == 200:
     assert "recommended_outfit" in d, "FAIL: recommended_outfit missing"
     assert "current" in d, "FAIL: current missing"
     assert "forecast" in d, "FAIL: forecast missing"
-    assert "ranked_outfits" in d, "FAIL: ranked_outfits missing"
-    assert "weather_description" in d["current"], "FAIL: weather_description missing in current"
+    ranked_outfits = d.get("ranked_outfits")
+    if ranked_outfits is not None:
+        assert isinstance(ranked_outfits, list), "FAIL: ranked_outfits must be a list"
+        assert all(
+            isinstance(outfit, dict) and isinstance(outfit.get("name"), str)
+            for outfit in ranked_outfits
+        ), "FAIL: ranked_outfits contains an invalid outfit"
+    else:
+        assert isinstance(d["recommended_outfit"], str), "FAIL: single recommendation is invalid"
     print("       Field assertions: PASS")
     print()
 

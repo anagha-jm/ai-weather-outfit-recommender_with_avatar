@@ -17,6 +17,33 @@ SUPPORTED_LABELS = [
     "Hoodie + Jeans",
 ]
 
+RAINY_WEATHER_CODES = {61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99}
+
+OUTFIT_AVATAR_FILES: Dict[str, str] = {
+    "Rain Jacket + Waterproof Shoes + Umbrella": "avatar_rain_outfit.png",
+    "Light Jacket + Umbrella": "avatar_light_jacket.png",
+    "T-Shirt + Shorts + Cap": "avatar_summer_outfit.png",
+    "Cotton T-Shirt + Jeans": "avatar_cotton_jeans.png",
+    "Windproof Jacket + Jeans": "avatar_windproof_jacket.png",
+    "Hoodie + Jeans": "avatar_hoodie_jeans.png",
+}
+
+WEATHER_SUITABLE_OUTFITS = {
+    "hot": ("T-Shirt + Shorts + Cap", "Cotton T-Shirt + Jeans"),
+    "cold": ("Windproof Jacket + Jeans", "Hoodie + Jeans"),
+    "rainy": (
+        "Rain Jacket + Waterproof Shoes + Umbrella",
+        "Light Jacket + Umbrella",
+    ),
+}
+
+
+def get_avatar_filename_for_outfit(outfit_name: str) -> str | None:
+    if not outfit_name:
+        return None
+    return OUTFIT_AVATAR_FILES.get(outfit_name)
+
+
 OUTFIT_CATALOG: Dict[str, Dict[str, Any]] = {
     "Rain Jacket + Waterproof Shoes + Umbrella": {
         "style": "Casual",
@@ -70,16 +97,29 @@ OUTFIT_CATALOG: Dict[str, Dict[str, Any]] = {
 
 
 def _prepare_weather(weather: Dict[str, Any]) -> Dict[str, float]:
-    forecast = weather or {}
-    max_temp = float(forecast.get("max_temp", 25.0))
+    if not isinstance(weather, dict):
+        weather = {}
+
+    forecast = weather.get("forecast") if isinstance(weather.get("forecast"), dict) else weather
+    current = weather.get("current") if isinstance(weather.get("current"), dict) else {}
+
+    max_temp = float(forecast.get("max_temp", current.get("temperature", 25.0)))
     min_temp = float(forecast.get("min_temp", max_temp))
-    rainfall = float(forecast.get("rainfall", 0.0))
-    max_speed = float(forecast.get("max_speed", 0.0))
+    rainfall = float(forecast.get("rainfall", current.get("precipitation", current.get("rain", 0.0))))
+    max_speed = float(forecast.get("max_speed", current.get("wind_speed", 0.0)))
+    precipitation_probability = float(
+        current.get("precipitation_probability", forecast.get("precipitation_probability", 0.0))
+    )
+    weather_code = int(current.get("weather_code", forecast.get("weather_code", 0)) or 0)
+
     return {
         "max_temp": max_temp,
         "min_temp": min_temp,
         "rainfall": rainfall,
         "max_speed": max_speed,
+        "weather_code": weather_code,
+        "precipitation_probability": precipitation_probability,
+        "current_precipitation": float(current.get("precipitation", current.get("rain", 0.0)) or 0.0),
     }
 
 
@@ -119,40 +159,65 @@ def _weather_score(name: str, weather: Dict[str, float]) -> int:
     temperature = weather["max_temp"]
     rainfall = weather["rainfall"]
     wind_speed = weather["max_speed"]
+    weather_code = int(weather.get("weather_code", 0) or 0)
+    current_precipitation = float(weather.get("current_precipitation", 0.0) or 0.0)
+    precipitation_probability = float(weather.get("precipitation_probability", 0.0) or 0.0)
+
+    rain_active = weather_code in RAINY_WEATHER_CODES or rainfall > 0 or current_precipitation > 0 or precipitation_probability >= 40
+    windy = wind_speed >= 25
+    cool = temperature <= 24
 
     if name == "Rain Jacket + Waterproof Shoes + Umbrella":
         score = 50 + (35 if rainfall >= 40 else 10 if rainfall >= 10 else -10)
+        score += 20 if rain_active else 0
         score += 8 if wind_speed >= 20 else 0
+        if rain_active:
+            score += 30
         return max(0, score)
 
     if name == "Light Jacket + Umbrella":
         score = 48 + (20 if rainfall >= 10 else 8 if rainfall >= 3 else -8)
+        score += 12 if rain_active else 0
         score += 6 if temperature <= 30 else 0
+        if rain_active:
+            score += 18
         return max(0, score)
 
     if name == "T-Shirt + Shorts + Cap":
         score = 52 + (22 if temperature >= 35 else 10 if temperature >= 30 else -10)
-        score += -10 if rainfall > 0 else 5
+        score += -20 if rain_active else 5
+        if rain_active:
+            score -= 25
         return max(0, score)
 
     if name == "Cotton T-Shirt + Jeans":
         score = 50 + (18 if temperature >= 30 else 8 if temperature >= 25 else -8)
-        score += -8 if rainfall > 15 else 3
+        score += -15 if rain_active else 3
+        if rain_active:
+            score -= 20
         return max(0, score)
 
     if name == "Windproof Jacket + Jeans":
-        score = 46 + (18 if wind_speed >= 25 else 6 if wind_speed >= 15 else -10)
+        score = 46 + (18 if windy else 6 if wind_speed >= 15 else -10)
+        score += 12 if cool and windy else 0
         score += 6 if temperature <= 28 else 0
+        if cool and windy:
+            score += 20
         return max(0, score)
 
     if name == "Hoodie + Jeans":
         score = 46 + (18 if temperature >= 25 and temperature <= 30 else 8 if temperature >= 20 else -8)
+        score += 10 if cool and not rain_active else 0
         score += -4 if rainfall > 20 else 5
+        if rain_active:
+            score -= 25
         return max(0, score)
 
     if name == "Sweater + Jacket":
         score = 42 + (18 if temperature < 25 else 8 if temperature < 30 else -8)
         score += 8 if rainfall <= 10 else -8
+        if rain_active:
+            score -= 18
         return max(0, score)
 
     return 50
@@ -183,8 +248,6 @@ def get_ranked_outfits(
 
         if score < 0:
             score = 0
-        if score > 100:
-            score = 100
 
         ranked.append(
             {
@@ -195,9 +258,12 @@ def get_ranked_outfits(
                 "clothing_items": list(template["clothing_items"]),
                 "accessories": list(template["accessories"]),
                 "explanation": template["explanation"],
-                "weather_match_score": int(score),
+                "weather_match_score": min(int(score), 100),
+                "_raw_score": score,
             }
         )
 
-    ranked.sort(key=lambda item: item["weather_match_score"], reverse=True)
+    ranked.sort(key=lambda item: (-item["_raw_score"], item["name"]))
+    for item in ranked:
+        item.pop("_raw_score", None)
     return ranked

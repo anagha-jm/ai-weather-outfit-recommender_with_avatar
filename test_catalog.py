@@ -1,6 +1,7 @@
 import joblib
 
 from backend.outfit_catalog import (
+    OUTFIT_AVATAR_FILES,
     SUPPORTED_LABELS,
     get_ranked_outfits,
 )
@@ -57,3 +58,50 @@ def test_catalog_keeps_model_label_as_primary_name():
     }
 
     assert names == expected_names
+
+
+def test_catalog_avatar_map_matches_supported_labels():
+    expected = {
+        "Rain Jacket + Waterproof Shoes + Umbrella": "avatar_rain_outfit.png",
+        "Light Jacket + Umbrella": "avatar_light_jacket.png",
+        "T-Shirt + Shorts + Cap": "avatar_summer_outfit.png",
+        "Cotton T-Shirt + Jeans": "avatar_cotton_jeans.png",
+        "Windproof Jacket + Jeans": "avatar_windproof_jacket.png",
+        "Hoodie + Jeans": "avatar_hoodie_jeans.png",
+    }
+
+    assert OUTFIT_AVATAR_FILES == expected
+    assert set(OUTFIT_AVATAR_FILES) == set(SUPPORTED_LABELS)
+
+
+def test_catalog_prefers_lightweight_dry_outfit_when_weather_is_warm_and_dry():
+    weather = {
+        "current": {"weather_code": 0, "precipitation": 0.0},
+        "forecast": {"max_temp": 35, "min_temp": 28, "rainfall": 0.0, "max_speed": 8.0},
+    }
+
+    ranked = get_ranked_outfits(weather, style="Casual", occasion="Casual", comfort_level=50)
+
+    assert ranked[0]["name"] == "T-Shirt + Shorts + Cap"
+
+
+def test_catalog_prioritises_rain_protection_when_current_weather_is_rainy_even_if_forecast_total_is_low():
+    weather = {
+        "current": {"weather_code": 61, "precipitation": 1.2},
+        "forecast": {"max_temp": 29, "min_temp": 24, "rainfall": 0.4, "max_speed": 10.0},
+    }
+
+    ranked = get_ranked_outfits(weather, style="Casual", occasion="Casual", comfort_level=50)
+
+    assert ranked[0]["name"] in {"Rain Jacket + Waterproof Shoes + Umbrella", "Light Jacket + Umbrella"}
+
+
+def test_catalog_prefers_windproof_outfit_when_cool_and_windy():
+    weather = {
+        "current": {"weather_code": 1, "precipitation": 0.0},
+        "forecast": {"max_temp": 21, "min_temp": 16, "rainfall": 0.0, "max_speed": 34.0},
+    }
+
+    ranked = get_ranked_outfits(weather, style="Casual", occasion="Casual", comfort_level=50)
+
+    assert ranked[0]["name"] == "Windproof Jacket + Jeans"

@@ -3,9 +3,14 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from weather_service import get_weather
-from predictor import predict_outfit
-from outfit_catalog import get_ranked_outfits
+if __package__:
+    from .outfit_catalog import WEATHER_SUITABLE_OUTFITS, get_ranked_outfits
+    from .weather_classifier import predict_weather_category
+    from .weather_service import get_weather
+else:
+    from outfit_catalog import WEATHER_SUITABLE_OUTFITS, get_ranked_outfits
+    from weather_classifier import predict_weather_category
+    from weather_service import get_weather
 
 app = Flask(__name__)
 
@@ -32,8 +37,6 @@ def predict():
     if not city:
         return jsonify({"error": "City is required"}), 400
 
-    # Accept style, occasion, comfort_level from frontend.
-    # Currently logged for visibility; will be wired to outfit catalog in Stage 2.
     style = data.get("style", "Casual")
     occasion = data.get("occasion", "Casual")
     comfort_level = data.get("comfort_level", 50)
@@ -43,19 +46,30 @@ def predict():
     if weather is None:
         return jsonify({"error": "City not found or weather service unavailable"}), 404
 
-    outfit = predict_outfit(weather["forecast"])
+    weather_category = predict_weather_category(weather["forecast"])
     ranked_outfits = get_ranked_outfits(
-        weather["forecast"],
+        weather,
         style=style,
         occasion=occasion,
         comfort_level=comfort_level,
     )
+    weather_suitable_outfits = set(WEATHER_SUITABLE_OUTFITS[weather_category])
+    ranked_outfits = [
+        outfit for outfit in ranked_outfits
+        if outfit["name"] in weather_suitable_outfits
+    ]
+    if not ranked_outfits:
+        raise RuntimeError(
+            f"No catalog outfits are mapped as suitable for {weather_category!r} weather."
+        )
+    recommended_outfit = ranked_outfits[0]["name"]
 
     return jsonify({
         "city": city,
         "current": weather["current"],
         "forecast": weather["forecast"],
-        "recommended_outfit": outfit,
+        "weather_category": weather_category,
+        "recommended_outfit": recommended_outfit,
         "ranked_outfits": ranked_outfits,
         # Echoing received filters so frontend can verify they were received
         "_filters": {
